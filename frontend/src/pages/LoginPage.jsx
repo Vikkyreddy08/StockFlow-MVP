@@ -1,21 +1,22 @@
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import Alert from '../components/Alert.jsx'
 import TextField from '../components/TextField.jsx'
+import { useAuth } from '../context/AuthContext.js'
 import AuthLayout from '../layouts/AuthLayout.jsx'
-import { login } from '../services/auth.js'
 import { parseApiError } from '../services/errors.js'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export default function LoginPage() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { login } = useAuth()
   const [form, setForm] = useState({ email: '', password: '' })
   const [fieldErrors, setFieldErrors] = useState({})
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState(location.state?.notice ?? '')
-  const [success, setSuccess] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const handleChange = (event) => {
@@ -41,7 +42,6 @@ export default function LoginPage() {
   const handleSubmit = async (event) => {
     event.preventDefault()
     setFormError('')
-    setSuccess('')
     setNotice('')
     if (!validate()) return
 
@@ -51,10 +51,9 @@ export default function LoginPage() {
         email: form.email.trim().toLowerCase(),
         password: form.password,
       })
-      setSuccess(
-        'Signed in successfully. The dashboard will be wired up in the next step.',
-      )
-      setForm((previous) => ({ ...previous, password: '' }))
+      // Return the user to the page they originally requested, defaulting to
+      // the app root when they arrived at /login directly.
+      navigate(location.state?.from ?? '/', { replace: true })
     } catch (error) {
       const { message, fieldErrors: apiFieldErrors } = parseApiError(error)
       setFormError(message)
@@ -82,7 +81,6 @@ export default function LoginPage() {
     >
       <form onSubmit={handleSubmit} noValidate className="space-y-4">
         {notice && <Alert variant="success">{notice}</Alert>}
-        {success && <Alert variant="success">{success}</Alert>}
         {formError && <Alert variant="error">{formError}</Alert>}
 
         <TextField
