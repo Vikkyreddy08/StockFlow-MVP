@@ -13,8 +13,11 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 import pymysql
+from django.core.exceptions import ImproperlyConfigured
+from django.core.management.utils import get_random_secret_key
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -28,17 +31,47 @@ load_dotenv(BASE_DIR / '.env')
 pymysql.install_as_MySQLdb()
 
 
+def env_bool(name, default):
+    """Return a boolean environment variable, falling back to `default`."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def env_int(name, default):
+    """Return an integer environment variable, falling back to `default` if unset/invalid."""
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        return int(value.strip())
+    except ValueError:
+        return default
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    'DJANGO_SECRET_KEY',
-    'django-insecure-u%hie4*d120f_bfjexke1_^^8r2aplubtexu%+*elj7)^09sg9',
-)
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes', 'on')
+# DEBUG defaults to False so the project is safe-by-default. Local development
+# opts in explicitly with DJANGO_DEBUG=True in backend/.env.
+DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() in ('1', 'true', 'yes', 'on')
+
+# SECURITY WARNING: keep the secret key used in production secret!
+# The key is read only from the DJANGO_SECRET_KEY environment variable - there is
+# no hardcoded fallback. When DEBUG is False a missing key is a fatal
+# configuration error; in local development an ephemeral key is generated so that
+# no secret value is ever committed to source control.
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = get_random_secret_key()
+    else:
+        raise ImproperlyConfigured(
+            'DJANGO_SECRET_KEY is required when DEBUG is False. Set it in the '
+            'environment or backend/.env before starting the server.'
+        )
 
 # Comma-separated list of allowed hosts, e.g. "localhost,127.0.0.1,example.com"
 ALLOWED_HOSTS = [
@@ -46,6 +79,44 @@ ALLOWED_HOSTS = [
     for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
     if host.strip()
 ]
+
+
+# ---------------------------------------------------------------------------
+# Production security: HTTPS, secure cookies and reverse-proxy support
+# ---------------------------------------------------------------------------
+#
+# Each setting below defaults to the production-safe value when DEBUG is False
+# and to the developer-friendly value when DEBUG is True. Every value can still
+# be overridden explicitly through the matching environment variable.
+
+# Redirect plain HTTP requests to HTTPS. Off in local development so the dev
+# server keeps working over plain HTTP.
+SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', default=not DEBUG)
+
+# HTTP Strict Transport Security. Off in local development, since HSTS only
+# takes effect over HTTPS.
+SECURE_HSTS_SECONDS = env_int('SECURE_HSTS_SECONDS', default=0 if DEBUG else 31536000)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool(
+    'SECURE_HSTS_INCLUDE_SUBDOMAINS', default=False
+)
+SECURE_HSTS_PRELOAD = env_bool(
+    'SECURE_HSTS_PRELOAD', default=False
+)
+
+# Session and CSRF cookies are only transmitted over HTTPS in production.
+SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', default=not DEBUG)
+CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', default=not DEBUG)
+
+# Reverse-proxy support. When the app runs behind a trusted proxy that
+# terminates TLS, that proxy forwards the original scheme in the
+# X-Forwarded-Proto header; Django is told to trust it so it can detect HTTPS.
+#
+# ASSUMPTION: this is safe ONLY if the hosting proxy always sets
+# X-Forwarded-Proto itself and strips any client-supplied value for it.
+# Otherwise a client could spoof the header. It is therefore opt-in via
+# USE_X_FORWARDED_PROTO and left disabled by default.
+if env_bool('USE_X_FORWARDED_PROTO', default=False):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 
 # Application definition
@@ -71,6 +142,7 @@ AUTH_USER_MODEL = 'accounts.User'
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -102,13 +174,43 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 #
-# MySQL is used when MYSQL_DATABASE is configured through environment variables.
-# Otherwise Django falls back to SQLite so the project can be checked and run
-# before the MySQL database has been set up.
+# Selection order:
+#   1. DATABASE_URL   -> PostgreSQL (production, e.g. Render PostgreSQL).
+#   2. MYSQL_DATABASE -> MySQL (local development).
+#   3. otherwise      -> SQLite (fallback so the project can be checked/run).
+#
+# Credentials are read only from the environment, never hardcoded, and never
+# printed or logged.
 
+DATABASE_URL = os.getenv('DATABASE_URL')
 MYSQL_DATABASE = os.getenv('MYSQL_DATABASE')
 
-if MYSQL_DATABASE:
+if DATABASE_URL:
+    # Production: a single DATABASE_URL (e.g. Render PostgreSQL). It is parsed
+    # with the standard library, so no extra dependency is required.
+    _db_url = urlparse(DATABASE_URL)
+
+    # Query-string parameters (e.g. ?sslmode=require) become connection OPTIONS.
+    # Hosting providers terminate TLS in front of PostgreSQL and require SSL, so
+    # sslmode=require is applied by default when the URL does not specify one.
+    _db_options = {
+        key: values[-1]
+        for key, values in parse_qs(_db_url.query).items()
+    }
+    _db_options.setdefault('sslmode', os.getenv('POSTGRES_SSLMODE', 'require'))
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': unquote(_db_url.path.lstrip('/')),
+            'USER': unquote(_db_url.username) if _db_url.username else '',
+            'PASSWORD': unquote(_db_url.password) if _db_url.password else '',
+            'HOST': _db_url.hostname or '',
+            'PORT': _db_url.port or 5432,
+            'OPTIONS': _db_options,
+        }
+    }
+elif MYSQL_DATABASE:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
@@ -166,7 +268,22 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+
+# Absolute path where `collectstatic` gathers every static file for production.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Storage backends (Django 5.2 uses STORAGES instead of the removed
+# STATICFILES_STORAGE). WhiteNoise serves the collected static files directly
+# from the WSGI app and compresses them; the default backend is unchanged.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -210,5 +327,20 @@ CORS_ALLOWED_ORIGINS = [
         'http://localhost:3000,http://127.0.0.1:3000,'
         'http://localhost:5173,http://127.0.0.1:5173',
     ).split(',')
+    if origin.strip()
+]
+
+
+# ---------------------------------------------------------------------------
+# CSRF trusted origins
+# ---------------------------------------------------------------------------
+
+# Comma-separated list of trusted origins for unsafe (non-GET) requests, e.g.
+# "https://app.example.com". Add the deployed frontend/API origins here for
+# cross-site session or admin POSTs served over HTTPS. Empty by default; never
+# use a wildcard.
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',')
     if origin.strip()
 ]
