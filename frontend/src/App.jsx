@@ -3,7 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import PublicOnlyRoute from './components/PublicOnlyRoute.jsx'
 import MainLayout from './layouts/MainLayout.jsx'
-import LandingPage from './pages/LandingPage.jsx'
+import DashboardPage from './pages/DashboardPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import SignupPage from './pages/SignupPage.jsx'
 
@@ -16,7 +16,7 @@ export default function App() {
       </Route>
       <Route element={<ProtectedRoute />}>
         <Route element={<MainLayout />}>
-          <Route path="/" element={<LandingPage />} />
+          <Route path="/" element={<DashboardPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Route>
