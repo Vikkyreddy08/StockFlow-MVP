@@ -4,10 +4,13 @@ import api from './api'
 // requires a valid access token, which the Axios request interceptor attaches
 // automatically.
 
-export function getProducts() {
+export function getProducts(search = '') {
   // GET /api/products/ returns a plain JSON array of products for the
-  // authenticated user's organization.
-  return api.get('/products/').then((response) => response.data)
+  // authenticated user's organization. An optional `search` term is sent as a
+  // query parameter for case-insensitive name/SKU filtering on the server.
+  const trimmed = search.trim()
+  const config = trimmed ? { params: { search: trimmed } } : undefined
+  return api.get('/products/', config).then((response) => response.data)
 }
 
 export function createProduct(payload) {

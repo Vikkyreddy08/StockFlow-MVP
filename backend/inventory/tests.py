@@ -391,3 +391,106 @@ class DashboardAPITests(APITestCase):
         self.assertEqual(response.data['total_products'], 0)
         self.assertEqual(response.data['total_stock'], 0)
         self.assertEqual(response.data['low_stock_items'], [])
+
+
+class ProductSearchAPITests(APITestCase):
+    """Search filtering by product name or SKU, scoped to the organization."""
+
+    def setUp(self):
+        self.organization = Organization.objects.create(name='Acme Corp')
+        self.user = User.objects.create_user(
+            email='owner@acme.com', password=PASSWORD, organization=self.organization
+        )
+
+        self.other_organization = Organization.objects.create(name='Globex')
+        self.other_user = User.objects.create_user(
+            email='owner@globex.com',
+            password=PASSWORD,
+            organization=self.other_organization,
+        )
+
+        Product.objects.create(
+            organization=self.organization,
+            name='Wireless Mouse',
+            sku='ELEC-001',
+            quantity_on_hand=25,
+        )
+        Product.objects.create(
+            organization=self.organization,
+            name='Mechanical Keyboard',
+            sku='ELEC-002',
+            quantity_on_hand=3,
+        )
+        # Matching product in another organization that must never leak.
+        Product.objects.create(
+            organization=self.other_organization,
+            name='Wireless Mouse',
+            sku='GLOBEX-001',
+            quantity_on_hand=10,
+        )
+
+    def authenticate(self, user=None):
+        user = user or self.user
+        response = self.client.post(
+            LOGIN_URL, {'email': user.email, 'password': PASSWORD}, format='json'
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {response.data['access']}")
+
+    def search(self, term):
+        return self.client.get(PRODUCTS_URL, {'search': term})
+
+    def skus(self, response):
+        return sorted(item['sku'] for item in response.data)
+
+    def test_search_by_name(self):
+        self.authenticate()
+
+        response = self.search('mouse')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.skus(response), ['ELEC-001'])
+
+    def test_search_by_sku(self):
+        self.authenticate()
+
+        response = self.search('ELEC-002')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.skus(response), ['ELEC-002'])
+
+    def test_search_is_case_insensitive(self):
+        self.authenticate()
+
+        self.assertEqual(self.skus(self.search('MOUSE')), ['ELEC-001'])
+        self.assertEqual(self.skus(self.search('elec-001')), ['ELEC-001'])
+
+    def test_search_is_partial(self):
+        self.authenticate()
+
+        self.assertEqual(self.skus(self.search('keyb')), ['ELEC-002'])
+        self.assertEqual(self.skus(self.search('elec')), ['ELEC-001', 'ELEC-002'])
+
+    def test_search_with_no_matches_returns_empty_list(self):
+        self.authenticate()
+
+        response = self.search('does-not-exist')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_search_never_returns_other_organization_products(self):
+        self.authenticate()
+
+        response = self.search('wireless mouse')
+
+        self.assertEqual(self.skus(response), ['ELEC-001'])
+        self.assertNotIn('GLOBEX-001', [item['sku'] for item in response.data])
+
+    def test_empty_search_returns_all_organization_products(self):
+        self.authenticate()
+
+        for term in ('', '   '):
+            with self.subTest(term=term):
+                response = self.search(term)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(self.skus(response), ['ELEC-001', 'ELEC-002'])

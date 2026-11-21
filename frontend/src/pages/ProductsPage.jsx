@@ -94,12 +94,14 @@ export default function ProductsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const response = await getProducts()
+      const response = await getProducts(search)
       setProducts(response)
     } catch (err) {
       const { message } = parseApiError(err)
@@ -107,11 +109,17 @@ export default function ProductsPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [search])
 
   useEffect(() => {
     load()
   }, [load])
+
+  // Debounce the search box so typing does not fire a request per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
 
   const isFormOpen = showForm || editingProduct !== null
 
@@ -185,6 +193,17 @@ export default function ProductsPage() {
         )}
       </header>
 
+      {!isFormOpen && (
+        <input
+          type="search"
+          value={searchInput}
+          onChange={(event) => setSearchInput(event.target.value)}
+          placeholder="Search by product name or SKU..."
+          aria-label="Search products by name or SKU"
+          className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+        />
+      )}
+
       {success && !isFormOpen && <Alert variant="success">{success}</Alert>}
       {actionError && !isFormOpen && (
         <Alert variant="error">{actionError}</Alert>
@@ -217,10 +236,23 @@ export default function ProductsPage() {
         </div>
       ) : products.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-10 text-center">
-          <p className="text-sm font-medium text-slate-500">No products yet</p>
-          <p className="mt-1 text-sm text-slate-400">
-            Products added to your organization will appear here.
-          </p>
+          {search ? (
+            <>
+              <p className="text-sm font-medium text-slate-500">
+                No products match &ldquo;{search}&rdquo;.
+              </p>
+              <p className="mt-1 text-sm text-slate-400">
+                Try a different product name or SKU.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-slate-500">No products yet</p>
+              <p className="mt-1 text-sm text-slate-400">
+                Products added to your organization will appear here.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">

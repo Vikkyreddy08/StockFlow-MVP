@@ -1,6 +1,6 @@
 """Product CRUD and dashboard views, scoped to the authenticated user's organization."""
 
-from django.db.models import Count, F, Sum
+from django.db.models import Count, F, Q, Sum
 from rest_framework import generics, serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -25,9 +25,22 @@ class OrganizationScopedMixin:
 class ProductListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView):
     """GET /api/products/  - list the organization's products.
     POST /api/products/ - create a product for the organization.
+
+    Supports an optional `search` query parameter that filters by a
+    case-insensitive partial match on the product name OR SKU, still scoped to
+    the authenticated user's organization.
     """
 
     serializer_class = ProductSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(sku__icontains=search)
+            )
+        return queryset
 
     def perform_create(self, serializer):
         organization = self.request.user.organization
