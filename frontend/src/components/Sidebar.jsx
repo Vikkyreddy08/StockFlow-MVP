@@ -1,10 +1,20 @@
 import { NavLink } from 'react-router-dom'
 
-const upcomingItems = [
-  { label: 'Dashboard', hint: 'Soon' },
-  { label: 'Products', hint: 'Soon' },
-  { label: 'Settings', hint: 'Later' },
+const navItems = [
+  { label: 'Home', to: '/', end: true },
+  { label: 'Products', to: '/products' },
 ]
+
+const upcomingItems = [{ label: 'Settings', hint: 'Later' }]
+
+function navLinkClass({ isActive }) {
+  return [
+    'flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+    isActive
+      ? 'bg-indigo-50 text-indigo-700'
+      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+  ].join(' ')
+}
 
 export default function Sidebar() {
   return (
@@ -19,20 +29,16 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">
-        <NavLink
-          to="/"
-          end
-          className={({ isActive }) =>
-            [
-              'flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-              isActive
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
-            ].join(' ')
-          }
-        >
-          Home
-        </NavLink>
+        {navItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={navLinkClass}
+          >
+            {item.label}
+          </NavLink>
+        ))}
 
         {upcomingItems.map((item) => (
           <div

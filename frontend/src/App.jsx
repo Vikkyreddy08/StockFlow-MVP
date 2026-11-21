@@ -5,6 +5,7 @@ import PublicOnlyRoute from './components/PublicOnlyRoute.jsx'
 import MainLayout from './layouts/MainLayout.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
+import ProductsPage from './pages/ProductsPage.jsx'
 import SignupPage from './pages/SignupPage.jsx'
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<MainLayout />}>
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/products" element={<ProductsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Route>
