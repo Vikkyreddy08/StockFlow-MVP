@@ -1,14 +1,16 @@
+import { Link } from 'react-router-dom'
+
 const upcomingCards = [
   {
     title: 'Dashboard',
     description:
       'Live stock totals and low-stock alerts for your organization.',
-    hint: 'Coming in Step 9',
+    hint: 'Coming soon',
   },
   {
     title: 'Products',
     description: 'Create, update, and manage your inventory products.',
-    hint: 'Coming in Step 10',
+    hint: 'Coming soon',
   },
   {
     title: 'Settings',
@@ -28,9 +30,24 @@ export default function LandingPage() {
           StockFlow
         </h1>
         <p className="mt-3 max-w-2xl text-slate-600">
-          A SaaS inventory management workspace. The frontend foundation is in
-          place and will connect to the Django REST API in the upcoming steps.
+          A SaaS inventory management workspace. Set up your organization and
+          sign in to manage stock, and we&apos;ll connect the dashboard next.
         </p>
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link
+            to="/signup"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+          >
+            Create account
+          </Link>
+          <Link
+            to="/login"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            Log in
+          </Link>
+        </div>
       </section>
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

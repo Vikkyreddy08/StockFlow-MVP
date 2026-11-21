@@ -1,8 +1,8 @@
 import { NavLink } from 'react-router-dom'
 
 const upcomingItems = [
-  { label: 'Dashboard', hint: 'Step 9' },
-  { label: 'Products', hint: 'Step 10' },
+  { label: 'Dashboard', hint: 'Soon' },
+  { label: 'Products', hint: 'Soon' },
   { label: 'Settings', hint: 'Later' },
 ]
 
