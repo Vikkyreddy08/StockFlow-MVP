@@ -11,6 +11,7 @@ from .models import Product
 User = get_user_model()
 
 PRODUCTS_URL = '/api/products/'
+DASHBOARD_URL = '/api/dashboard/'
 LOGIN_URL = '/api/auth/login/'
 PASSWORD = 'Str0ngPass!234567'
 
@@ -290,3 +291,103 @@ class ProductAPITests(APITestCase):
         self.assertEqual(self.product.quantity_on_hand, 9)
         self.assertEqual(self.product.name, 'Widget')
         self.assertEqual(self.product.sku, 'SKU-001')
+
+
+class DashboardAPITests(APITestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name='Acme Corp')
+        self.user = User.objects.create_user(
+            email='owner@acme.com', password=PASSWORD, organization=self.organization
+        )
+
+        self.other_organization = Organization.objects.create(name='Globex')
+        self.other_user = User.objects.create_user(
+            email='owner@globex.com',
+            password=PASSWORD,
+            organization=self.other_organization,
+        )
+
+        Product.objects.create(
+            organization=self.organization,
+            name='Widget',
+            sku='SKU-001',
+            quantity_on_hand=10,
+            low_stock_threshold=3,
+        )
+        Product.objects.create(
+            organization=self.organization,
+            name='Gizmo',
+            sku='SKU-002',
+            quantity_on_hand=2,
+            low_stock_threshold=5,
+        )
+        Product.objects.create(
+            organization=self.organization,
+            name='Thresholdless',
+            sku='SKU-003',
+            quantity_on_hand=1,
+        )
+        Product.objects.create(
+            organization=self.other_organization,
+            name='Other',
+            sku='SKU-999',
+            quantity_on_hand=100,
+            low_stock_threshold=200,
+        )
+
+    def authenticate(self, user=None):
+        user = user or self.user
+        response = self.client.post(
+            LOGIN_URL, {'email': user.email, 'password': PASSWORD}, format='json'
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {response.data['access']}")
+
+    def test_requires_authentication(self):
+        response = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_totals_are_scoped_to_organization(self):
+        self.authenticate()
+
+        response = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['total_products'], 3)
+        self.assertEqual(response.data['total_stock'], 13)
+
+    def test_low_stock_items_exclude_thresholdless_and_healthy_products(self):
+        self.authenticate()
+
+        response = self.client.get(DASHBOARD_URL)
+
+        skus = [item['sku'] for item in response.data['low_stock_items']]
+        self.assertIn('SKU-002', skus)
+        self.assertNotIn('SKU-001', skus)
+        self.assertNotIn('SKU-003', skus)
+        self.assertNotIn('SKU-999', skus)
+
+    def test_low_stock_item_shape(self):
+        self.authenticate()
+
+        response = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(len(response.data['low_stock_items']), 1)
+        item = response.data['low_stock_items'][0]
+        self.assertEqual(
+            set(item.keys()),
+            {'id', 'name', 'sku', 'quantity_on_hand', 'low_stock_threshold'},
+        )
+
+    def test_user_without_organization_gets_zeroed_dashboard(self):
+        orphan_user = User.objects.create_user(
+            email='nomad@nowhere.com', password=PASSWORD
+        )
+        self.authenticate(orphan_user)
+
+        response = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['total_products'], 0)
+        self.assertEqual(response.data['total_stock'], 0)
+        self.assertEqual(response.data['low_stock_items'], [])
